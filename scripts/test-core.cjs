@@ -2,38 +2,55 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
-
 function load(file) {
   const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-  const output = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  }).outputText;
-  const moduleObj = { exports: {} };
-  new Function('exports', 'module', 'require', output)(moduleObj.exports, moduleObj, require);
-  return moduleObj.exports;
+  const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }}).outputText;
+  const obj = { exports: {} };
+  new Function('exports','module','require',output)(obj.exports,obj,require);
+  return obj.exports;
 }
-
-const model = load('lib/model.ts');
-const dates = load('lib/dates.ts');
-const empty = model.emptyDay();
-assert.equal(model.dayScore(empty, 60), 0);
-const full = { ...empty, duolingo: true, creatine: true, gym: true, noAlcohol: true,
-  studyMinutes: 60, meals: Object.fromEntries(model.MEALS.map((meal) => [meal.id, true])) };
-assert.equal(model.dayScore(full, 60), model.MAX_SCORE);
-assert.equal(model.normalizeExerciseName('SUPINO RETO'), model.normalizeExerciseName('Supino R\u00e9to!'));
-assert.equal(dates.shiftDate('2026-12-31', 1), '2027-01-01');
-assert.equal(dates.weekdayOf('2026-11-07'), 5);
-
-const data = model.emptyData();
-const id = 'same-exercise-id';
-data.exercises[id] = { id, name: 'Supino Reto', weight: 60 };
-data.plans[0].push({ id: 'monday', exerciseId: id, sets: 3, reps: 10 });
-data.plans[3].push({ id: 'thursday', exerciseId: id, sets: 4, reps: 8 });
-const restored = model.sanitizeImportedData(JSON.parse(JSON.stringify(data)));
-restored.exercises[id].weight = 70;
-assert.equal(restored.exercises[restored.plans[0][0].exerciseId].weight, 70);
-assert.equal(restored.exercises[restored.plans[3][0].exerciseId].weight, 70);
-assert.equal(restored.plans[0][0].sets, 3);
-assert.equal(restored.plans[3][0].sets, 4);
-assert.throws(() => model.sanitizeImportedData({ version: 1 }), /backup/i);
-console.log('OK - score, 11 metas, datas, nome canonico, sincronizacao de cargas e backups.');
+const model=load('lib/model.ts');
+const dates=load('lib/dates.ts');
+const empty=model.emptyDay();
+assert.equal(model.dayScore(empty,60),0);
+const full = {...empty, duolingo:true,creatine:true,gym:true,noAlcohol:true,studyMinutes:60,meals:Object.fromEntries(model.MEALS.map(m=>[m.id,true]))};
+assert.equal(model.dayScore(full,60),11);
+const data=model.emptyData();
+assert.equal(data.habits.length,5);
+assert.equal(data.mealCatalog.length,6);
+assert.equal(model.totalGoals(data),11);
+assert.equal(model.dayScore(full,60,data.habits,data.mealCatalog),11);
+const extra={id:'custom-hydrate',title:'Beber agua',subtitle:'2 litros',icon:'sun',tone:'sky'};
+data.habits.push(extra);
+full.habitChecks={'custom-hydrate':true};
+assert.equal(model.dayScore(full,60,data.habits,data.mealCatalog),12);
+data.habits=data.habits.filter(h=>h.id!=='creatine');
+assert.equal(model.totalGoals(data),11);
+assert.equal(model.dayScore(full,60,data.habits,data.mealCatalog),11);
+data.mealCatalog.push({id:'lateSnack',name:'Ceia',detail:''});
+assert.equal(model.totalGoals(data),12);
+assert.equal(model.dayScore(full,60,data.habits,data.mealCatalog),11);
+full.meals.lateSnack=true;
+assert.equal(model.dayScore(full,60,data.habits,data.mealCatalog),12);
+const restored=model.sanitizeImportedData(JSON.parse(JSON.stringify(data)));
+assert.equal(restored.habits.some(h=>h.id==='custom-hydrate'),true);
+assert.equal(restored.habits.some(h=>h.id==='creatine'),false);
+assert.equal(restored.mealCatalog.length,7);
+const older=model.emptyData();delete older.habits;delete older.mealCatalog;
+assert.equal(model.sanitizeImportedData(older).habits.length,5);
+assert.equal(model.sanitizeImportedData(older).mealCatalog.length,6);
+const none=model.emptyData();none.habits=[];none.mealCatalog=[];
+assert.equal(model.totalGoals(model.sanitizeImportedData(none)),0);
+assert.equal(model.normalizeExerciseName('SUPINO RETO'),model.normalizeExerciseName('Supino Reto!'));
+assert.equal(dates.shiftDate('2026-12-31',1),'2027-01-01');
+assert.equal(dates.weekdayOf('2026-11-07'),5);
+const id='shared';data.exercises[id]={id,name:'Supino',weight:70};
+data.plans[0].push({id:'mon',exerciseId:id,sets:3,reps:10});
+data.plans[3].push({id:'thu',exerciseId:id,sets:4,reps:8});
+const weights=model.sanitizeImportedData(data);
+weights.exercises[id].weight=80;
+assert.equal(weights.exercises[weights.plans[0][0].exerciseId].weight,80);
+assert.equal(weights.exercises[weights.plans[3][0].exerciseId].weight,80);
+assert.equal(weights.plans[3][0].sets,4);
+assert.throws(()=>model.sanitizeImportedData({version:1}),/backup/i);
+console.log('OK - migration, dynamic goals, CRUD snapshots, diets, score and shared exercise loads.');

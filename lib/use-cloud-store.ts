@@ -1,18 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { emptyData, sanitizeImportedData, STORAGE_KEY } from "@/lib/model";
+import { DEFAULT_HABITS, MEALS, emptyData, sanitizeImportedData, STORAGE_KEY } from "@/lib/model";
 import type { AppData } from "@/lib/model";
 
 export type CloudStatus = "loading" | "saved" | "saving" | "offline" | "conflict" | "error";
-const CACHE_KEY = "ritmo.supabase-cache.v1";
+const CACHE_KEY = "ritmo.supabase-cache.v1"; // Backward compatible cache key
 
 type Snapshot = { data: AppData; revision: number; updatedAt?: string };
 type Cache = Snapshot & { dirty: boolean };
 
 function isEmptyApp(data: AppData): boolean {
   return Object.keys(data.days).length === 0 && Object.keys(data.exercises).length === 0 &&
-    data.sessions.length === 0 && Object.values(data.plans).every((items) => items.length === 0);
+    data.sessions.length === 0 && Object.values(data.plans).every((items) => items.length === 0) &&
+    JSON.stringify(data.habits) === JSON.stringify(DEFAULT_HABITS) &&
+    JSON.stringify(data.mealCatalog) === JSON.stringify(MEALS);
 }
 
 function readCache(): Cache | null {
@@ -35,8 +37,17 @@ function writeCache(data: AppData, revision: number, dirty: boolean, updatedAt?:
   catch { /* The cloud remains the canonical store if local storage is unavailable. */ }
 }
 
+function rejectUnauthorized(response: Response) {
+  if (response.status === 401 || response.status === 403) {
+    try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem(STORAGE_KEY); } catch { /* no storage */ }
+    window.location.replace('/login');
+    throw new Error('Sessao encerrada. Entre novamente para acessar os dados.');
+  }
+}
+
 async function readServer(): Promise<Snapshot> {
   const response = await fetch("/api/state", { cache: "no-store" });
+  rejectUnauthorized(response);
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(typeof payload.error === "string" ? payload.error : "Nao foi possivel carregar o Supabase.");
@@ -53,6 +64,7 @@ async function writeServer(data: AppData, expectedRevision: number): Promise<Pic
     body: JSON.stringify({ data, expectedRevision }),
     cache: "no-store",
   });
+  rejectUnauthorized(response);
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     const message = typeof payload.error === "string" ? payload.error : "Erro de sincronizacao.";

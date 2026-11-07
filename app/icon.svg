@@ -1,9 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="29" fill="#192824"/>
-  <g transform="rotate(-5 64 64)" fill="#B7ED82">
-    <rect x="34" y="34" width="26" height="26" rx="7"/>
-    <rect x="68" y="34" width="26" height="26" rx="7" opacity=".53"/>
-    <rect x="34" y="68" width="26" height="26" rx="7" opacity=".69"/>
-    <rect x="68" y="68" width="26" height="26" rx="7"/>
-  </g>
+ <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1b342a"/><stop offset="1" stop-color="#090e15"/></linearGradient><linearGradient id="fg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d0ff91"/><stop offset="1" stop-color="#83e6ad"/></linearGradient></defs>
+ <rect width="128" height="128" rx="29" fill="url(#bg)"/>
+ <path d="M31 96V32h34c23 0 35 12 35 30 0 12-8 21-19 25l20 9H81L62 85H48v11H31zm17-26h18c11 0 17-4 17-12s-6-12-17-12H48v24z" fill="url(#fg)"/>
 </svg>

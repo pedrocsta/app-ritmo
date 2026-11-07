@@ -1,6 +1,6 @@
 -- Execute UMA vez no Supabase > SQL Editor.
--- Usuario unico, sem Supabase Auth. NENHUMA politica publica de leitura/escrita.
--- O servidor Next.js acessa esta tabela exclusivamente com SUPABASE_SECRET_KEY.
+-- RYVMO 2.0: usuario unico com Supabase Auth. NENHUMA politica publica de leitura/escrita.
+-- O servidor Next.js verifica OWNER_USER_ID e so depois usa SUPABASE_SECRET_KEY.
 
 create table if not exists public.ritmo_state (
   id text primary key constraint ritmo_personal_only check (id = 'personal'),

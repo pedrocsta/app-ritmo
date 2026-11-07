@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sanitizeImportedData } from '@/lib/model';
 import { isSupabaseConfigured, supabaseRequest } from '@/lib/supabase-server';
+import { ownerStatus } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -14,6 +15,13 @@ function errorResponse(message: string, status = 503) {
   return NextResponse.json({ error: message }, { status, headers: NO_STORE });
 }
 
+async function authorize(): Promise<ReturnType<typeof errorResponse> | null> {
+  const result = await ownerStatus();
+  if (result === 'anonymous') return errorResponse('Sessao expirada. Entre novamente.', 401);
+  if (result === 'forbidden') return errorResponse('Conta sem autorizacao para acessar este app.', 403);
+  return null;
+}
+
 async function fetchState(): Promise<StoredRecord> {
   const response = await supabaseRequest('ritmo_state?select=data,revision,updated_at&id=eq.personal&limit=1');
   if (!response.ok) throw new Error(`Erro ao consultar Supabase (${response.status}). Verifique a tabela e as permissoes.`);
@@ -23,17 +31,21 @@ async function fetchState(): Promise<StoredRecord> {
 }
 
 export async function GET() {
+  const denied = await authorize();
+  if (denied) return denied;
   if (!isSupabaseConfigured()) return errorResponse('Configure SUPABASE_URL e SUPABASE_SECRET_KEY no servidor.');
   try {
     const state = await fetchState();
     return NextResponse.json({ data: sanitizeImportedData(state.data), revision: state.revision, updatedAt: state.updated_at }, { headers: NO_STORE });
   } catch (error) {
-    console.error('Ritmo GET:', error instanceof Error ? error.message : 'erro desconhecido');
+    console.error('RYVMO GET:', error instanceof Error ? error.message : 'erro desconhecido');
     return errorResponse('Nao foi possivel carregar os dados do Supabase. Verifique a configuracao e o SQL inicial.');
   }
 }
 
 export async function PUT(request: Request) {
+  const denied = await authorize();
+  if (denied) return denied;
   if (!isSupabaseConfigured()) return errorResponse('Configure SUPABASE_URL e SUPABASE_SECRET_KEY no servidor.');
   const body = await request.text();
   if (new TextEncoder().encode(body).byteLength > MAX_BYTES) return errorResponse('Os dados excedem 3,5 MB. Exporte um backup antes de reduzir o historico.', 413);
@@ -63,7 +75,7 @@ export async function PUT(request: Request) {
     }
     return NextResponse.json({ revision: rows[0].revision, updatedAt: rows[0].updated_at }, { headers: NO_STORE });
   } catch (error) {
-    console.error('Ritmo PUT:', error instanceof Error ? error.message : 'erro desconhecido');
+    console.error('RYVMO PUT:', error instanceof Error ? error.message : 'erro desconhecido');
     return errorResponse('Nao foi possivel salvar no Supabase. O app mantera uma copia local para tentar novamente.');
   }
 }
