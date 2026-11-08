@@ -72,6 +72,30 @@ import { useCloudStore } from "@/lib/use-cloud-store";
 type Tab = "today" | "calendar" | "training" | "settings";
 
 type TabInfo = { id: Tab; title: string; icon: LucideIcon };
+const ILLUSTRATED_EXERCISE_KEYS = new Set<string>([
+  "corrida",
+  "agachamento-livre",
+  "leg-press-45",
+  "cadeira-extensora",
+  "cadeira-flexora",
+  "panturrilha-unilateral",
+  "abdominal-polia",
+  "elevacao-joelhos",
+  "supino-inclinado-halteres",
+  "puxada-neutra",
+  "supino-reto-halteres",
+  "remada-baixa",
+  "desenvolvimento-neutro",
+  "lateral-polia",
+  "crucifixo-inverso-maquina",
+  "rosca-scott-maquina",
+  "triceps-frances-corda",
+  "terra-romeno",
+  "agachamento-bulgaro",
+  "hip-thrust",
+]);
+const exerciseImageUrl = (key: string) => `/exercises/${key}.${ILLUSTRATED_EXERCISE_KEYS.has(key) ? "webp" : "svg"}`;
+
 const TABS: TabInfo[] = [
   { id: "today", title: "Hoje", icon: Home },
   { id: "calendar", title: "Hist\u00f3rico", icon: CalendarDays },
@@ -683,7 +707,7 @@ export default function Dashboard() {
                     <button className="icon-quiet" type="button" onClick={() => removeExercise(item.id)} aria-label={`Remover ${exercise.name}`} title="Remover deste dia"><Trash2 size={17} /></button>
                   </div>
                   {exercise.imageKey ? <button type="button" className="exercise-visual" onClick={() => setArtOpen({ name: exercise.name, imageKey: exercise.imageKey!, instructions: exercise.instructions })} aria-label={`Abrir imagem e execução de ${exercise.name}`}>
-                    <img src={`/exercises/${exercise.imageKey}.svg`} alt={`Ilustração esquemática de ${exercise.name}`} loading="lazy" />
+                    <img src={exerciseImageUrl(exercise.imageKey)} alt={`Ilustração de ${exercise.name}`} loading="lazy" />
                     <span className="exercise-visual-action"><Info size={14} /> Ver movimento <ArrowUpRight size={14} /></span>
                   </button> : null}
                   {isCardio ? <div className="run-summary">
@@ -747,9 +771,9 @@ export default function Dashboard() {
       {artOpen && <div className="modal-backdrop image-modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setArtOpen(null); }}>
         <div className="exercise-modal" role="dialog" aria-modal="true" aria-label={`Como reconhecer ${artOpen.name}`}>
           <div className="exercise-modal-heading"><div><span className="eyebrow">GUIA VISUAL DO EXERCÍCIO</span><h2>{artOpen.name}</h2></div><button type="button" onClick={() => setArtOpen(null)} className="icon-quiet" aria-label="Fechar imagem"><X size={19}/></button></div>
-          <img src={`/exercises/${artOpen.imageKey}.svg`} alt={`Ilustração do exercício ${artOpen.name}`} />
+          <img src={exerciseImageUrl(artOpen.imageKey)} alt={`Ilustração do exercício ${artOpen.name}`} />
           {artOpen.instructions ? <p>{artOpen.instructions}</p> : null}
-          <small>Ilustração esquemática para reconhecer o movimento. Não substitui a demonstração de um profissional.</small>
+          <small>Ilustração para reconhecer o movimento. Não substitui a demonstração de um profissional.</small>
         </div>
       </div>}
       {toast && <div className="toast" role="status"><span className="toast-check"><Check size={16} /></span>{toast}<button onClick={() => setToast(null)} aria-label="Fechar aviso"><X size={15} /></button></div>}

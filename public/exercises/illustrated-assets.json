@@ -1,0 +1,30 @@
+{
+  "format": "webp",
+  "size": [
+    640,
+    800
+  ],
+  "aspect_ratio": "4:5",
+  "keys_with_images": [
+    "corrida",
+    "agachamento-livre",
+    "leg-press-45",
+    "cadeira-extensora",
+    "cadeira-flexora",
+    "panturrilha-unilateral",
+    "abdominal-polia",
+    "elevacao-joelhos",
+    "supino-inclinado-halteres",
+    "puxada-neutra",
+    "supino-reto-halteres",
+    "remada-baixa",
+    "desenvolvimento-neutro",
+    "lateral-polia",
+    "crucifixo-inverso-maquina",
+    "rosca-scott-maquina",
+    "triceps-frances-corda",
+    "terra-romeno",
+    "agachamento-bulgaro",
+    "hip-thrust"
+  ]
+}

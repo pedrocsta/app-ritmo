@@ -111,3 +111,13 @@ Abra http://localhost:3000. O arquivo `.env.example` contém os nomes das variá
 - Para atualizar o peso, altere a carga compartilhada no exercício; para registrar o peso efetivamente usado numa série passada, use o formulário detalhado.
 
 **Verificacao realizada aqui:** testes de modelo, autenticacao com mocks, recuperacao de falhas, UI dark, integridade das 28 ilustracoes, 34 itens de plano e round-trip dos dados passaram. A checagem de TypeScript e o build de producao do Next.js tambem passaram. A integracao autenticada com um Supabase real nao foi validada. O script SQL foi preparado e validado estruturalmente; sua execucao no projeto Supabase e uma etapa separada da publicacao do codigo.
+
+
+
+## Biblioteca visual corrigida: 20 cartões em um único design
+
+As 20 imagens individuais de `public/exercises/*.webp` usam **exatamente o mesmo template visual** (640 × 800 px, proporção 4:5): fundo grafite, moldura arredondada, ícone verde-lima, tipografia Inter, mesma posição do título, linha de acento e margens. As ilustrações de cada movimento foram reaproveitadas e enquadradas no mesmo padrão para eliminar a diferença de layout entre os lotes.
+
+**Nota de qualidade:** os desenhos do segundo lote se originam de ilustrações de menor resolução; a uniformização de layout não torna essas fontes tão detalhadas quanto as do primeiro lote. Para exercícios desconhecidos, use uma demonstração técnica profissional; as figuras são esquemáticas.
+
+As imagens mantêm os **mesmos nomes e caminhos da versão anterior**, de modo que não é preciso alterar o código Next.js nem executar SQL novamente. Basta substituir os arquivos no GitHub e aguardar o deploy da Vercel. Os oito exercícios ainda não contemplados pelos lotes continuam utilizando os SVGs de reserva.
