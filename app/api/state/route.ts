@@ -17,6 +17,7 @@ function errorResponse(message: string, status = 503) {
 
 async function authorize(): Promise<ReturnType<typeof errorResponse> | null> {
   const result = await ownerStatus();
+  if (result === 'unavailable') return errorResponse('Autenticacao temporariamente indisponivel. Confira as variaveis do Supabase e os logs da Vercel.', 503);
   if (result === 'anonymous') return errorResponse('Sessao expirada. Entre novamente.', 401);
   if (result === 'forbidden') return errorResponse('Conta sem autorizacao para acessar este app.', 403);
   return null;

@@ -41,9 +41,20 @@ export type DayLog = {
   meals: Record<string, boolean>;
   habitChecks: Record<string, boolean>;
 };
-export type Exercise = { id: string; name: string; weight: number };
-export type PlanExercise = { id: string; exerciseId: string; sets: number; reps: number };
-export type RecordedExercise = { exerciseId: string; name: string; weight: number; plannedSets: number; performedSets: number; reps: number };
+export type Exercise = { id: string; name: string; weight: number; imageKey?: string; muscleGroup?: string; instructions?: string; kind?: 'strength' | 'cardio' };
+export type PlanExercise = {
+  id: string; exerciseId: string; sets: number; reps: number;
+  repsUpper?: number; restSeconds?: number; referenceWeight?: number;
+  notes?: string; durationMinutes?: number; warmupMinutes?: number;
+  mainMinutes?: number; cooldownMinutes?: number; intensity?: string;
+};
+export type ProgramDay = { title: string; subtitle: string; kind: 'strength' | 'cardio' | 'rest' };
+export type PerformedSet = { setNumber: number; reps: number; weight: number };
+export type DraftSet = { reps: number; weight: number };
+export type RecordedExercise = {
+  exerciseId: string; name: string; weight: number; plannedSets: number;
+  performedSets: number; reps: number; setsDone?: PerformedSet[]; durationMinutes?: number;
+};
 export type WorkoutSession = { id: string; date: string; planDay: Weekday; createdAt: string; exercises: RecordedExercise[] };
 export type AppData = {
   version: 1;
@@ -52,6 +63,8 @@ export type AppData = {
   mealCatalog: MealDefinition[];
   exercises: Record<string, Exercise>;
   plans: Record<Weekday, PlanExercise[]>;
+  trainingDays: Partial<Record<Weekday, ProgramDay>>;
+  workoutDetails: Record<string, Record<string, DraftSet[]>>;
   workoutChecks: Record<string, Record<string, boolean[]>>;
   sessions: WorkoutSession[];
   settings: { studyGoal: number };
@@ -69,6 +82,7 @@ export function emptyData(): AppData {
     version: 1, days: {}, habits: DEFAULT_HABITS.map((habit) => ({ ...habit })),
     mealCatalog: MEALS.map((meal) => ({ ...meal })), exercises: {},
     plans: { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] },
+    trainingDays: {}, workoutDetails: {},
     workoutChecks: {}, sessions: [], settings: { studyGoal: 60 },
   };
 }
@@ -139,7 +153,13 @@ export function sanitizeImportedData(candidate: unknown): AppData {
     if (!value || typeof value !== 'object') continue;
     const ex = value as Exercise;
     const name = safeText(ex.name, 80);
-    if (name && validId(id)) exercises[id] = { id, name, weight: safeNumber(ex.weight, 0, 2000, 0) };
+    if (name && validId(id)) exercises[id] = {
+      id, name, weight: safeNumber(ex.weight, 0, 2000, 0),
+      ...(typeof ex.imageKey === 'string' && /^[a-z0-9-]{1,60}$/.test(ex.imageKey) ? { imageKey: ex.imageKey } : {}),
+      ...(ex.muscleGroup ? { muscleGroup: safeText(ex.muscleGroup, 80) } : {}),
+      ...(ex.instructions ? { instructions: safeText(ex.instructions, 360) } : {}),
+      kind: ex.kind === 'cardio' ? 'cardio' : 'strength',
+    };
   }
   const plans = blank.plans;
   for (let i = 0; i < 7; i++) {
@@ -149,7 +169,39 @@ export function sanitizeImportedData(candidate: unknown): AppData {
       .filter((item): item is PlanExercise => Boolean(item && typeof item === 'object' && exercises[item.exerciseId]))
       .slice(0, 60)
       .map((item) => ({ id: String(item.id).slice(0, 100), exerciseId: String(item.exerciseId),
-        sets: Math.round(safeNumber(item.sets, 1, 20, 3)), reps: Math.round(safeNumber(item.reps, 1, 100, 10)) })) : [];
+        sets: Math.round(safeNumber(item.sets, 1, 20, 3)), reps: Math.round(safeNumber(item.reps, 1, 100, 10)),
+        ...(item.repsUpper != null ? { repsUpper: Math.round(safeNumber(item.repsUpper, 1, 100, 15)) } : {}),
+        ...(item.restSeconds != null ? { restSeconds: Math.round(safeNumber(item.restSeconds, 0, 600, 90)) } : {}),
+        ...(item.referenceWeight != null ? { referenceWeight: safeNumber(item.referenceWeight, 0, 2000, 0) } : {}),
+        ...(item.notes ? { notes: safeText(item.notes, 250) } : {}),
+        ...(item.durationMinutes != null ? { durationMinutes: Math.round(safeNumber(item.durationMinutes, 1, 360, 40)) } : {}),
+        ...(item.warmupMinutes != null ? { warmupMinutes: Math.round(safeNumber(item.warmupMinutes, 0, 120, 5)) } : {}),
+        ...(item.mainMinutes != null ? { mainMinutes: Math.round(safeNumber(item.mainMinutes, 0, 360, 30)) } : {}),
+        ...(item.cooldownMinutes != null ? { cooldownMinutes: Math.round(safeNumber(item.cooldownMinutes, 0, 120, 5)) } : {}),
+        ...(item.intensity ? { intensity: safeText(item.intensity, 70) } : {}),
+      })) : [];
+  }
+  const trainingDays: AppData['trainingDays'] = {};
+  for (let i = 0; i < 7; i++) {
+    const weekday = i as Weekday;
+    const info = parsed.trainingDays?.[weekday];
+    if (info && typeof info === 'object') trainingDays[weekday] = {
+      title: safeText(info.title, 65), subtitle: safeText(info.subtitle, 130),
+      kind: info.kind === 'rest' ? 'rest' : info.kind === 'cardio' ? 'cardio' : 'strength',
+    };
+  }
+  const workoutDetails: AppData['workoutDetails'] = {};
+  const rawDetails = parsed.workoutDetails && typeof parsed.workoutDetails === 'object' ? parsed.workoutDetails : {};
+  for (const [date, dayDetails] of Object.entries(rawDetails)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !dayDetails || typeof dayDetails !== 'object') continue;
+    workoutDetails[date] = {};
+    for (const [id, rows] of Object.entries(dayDetails)) {
+      if (!validId(id) || !Array.isArray(rows)) continue;
+      workoutDetails[date][id] = rows.slice(0, 20).map((row) => ({
+        reps: Math.round(safeNumber(row?.reps, 0, 100, 0)),
+        weight: safeNumber(row?.weight, 0, 2000, 0),
+      }));
+    }
   }
   const rawChecks = parsed.workoutChecks && typeof parsed.workoutChecks === 'object' ? parsed.workoutChecks : {};
   const workoutChecks: AppData['workoutChecks'] = {};
@@ -169,7 +221,13 @@ export function sanitizeImportedData(candidate: unknown): AppData {
       exercises: session.exercises.slice(0, 60).map((ex) => ({ exerciseId: String(ex.exerciseId),
         name: String(ex.name).slice(0, 80), weight: safeNumber(ex.weight, 0, 2000, 0),
         plannedSets: Math.round(safeNumber(ex.plannedSets, 0, 20, 0)),
-        performedSets: Math.round(safeNumber(ex.performedSets, 0, 20, 0)), reps: Math.round(safeNumber(ex.reps, 0, 100, 0)) })) })) : [];
-  return { version: 1, days, habits, mealCatalog, exercises, plans, workoutChecks, sessions,
+        performedSets: Math.round(safeNumber(ex.performedSets, 0, 20, 0)), reps: Math.round(safeNumber(ex.reps, 0, 100, 0)),
+        ...(ex.durationMinutes != null ? { durationMinutes: Math.round(safeNumber(ex.durationMinutes, 0, 360, 0)) } : {}),
+        ...(Array.isArray(ex.setsDone) ? { setsDone: ex.setsDone.slice(0, 20).map((set) => ({
+          setNumber: Math.round(safeNumber(set.setNumber, 1, 20, 1)),
+          reps: Math.round(safeNumber(set.reps, 0, 100, 0)), weight: safeNumber(set.weight, 0, 2000, 0),
+        })) } : {}),
+      })) })) : [];
+  return { version: 1, days, habits, mealCatalog, exercises, plans, trainingDays, workoutDetails, workoutChecks, sessions,
     settings: { studyGoal: Math.round(safeNumber(parsed.settings?.studyGoal, 1, 1440, 60)) } };
 }

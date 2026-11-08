@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck, Sparkles } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-export default function LoginForm() {
+export default function LoginForm({ missingConfig = false }: { missingConfig?: boolean }) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,20 +16,32 @@ export default function LoginForm() {
     event.preventDefault();
     if (busy) return;
     setBusy(true); setMessage('');
-    const supabase = createClient();
     try {
+      const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) { setMessage('E-mail ou senha incorretos. Confira os dados e tente novamente.'); return; }
+      if (error) {
+        setMessage((error.status ?? 0) >= 500 || error.name === 'AuthRetryableFetchError'
+          ? 'O Supabase Auth não está respondendo. Verifique o status do projeto e tente novamente.'
+          : 'Não foi possível entrar. Confira seu e-mail, senha e a configuração do Supabase.');
+        return;
+      }
       const check = await fetch('/api/auth/me', { cache: 'no-store' });
       if (!check.ok) {
-        await supabase.auth.signOut();
-        setMessage('Esta conta não está autorizada a acessar o RYVMO.');
+        if (check.status === 403) {
+          await supabase.auth.signOut();
+          setMessage('Esta conta não está autorizada a acessar o RYVMO.');
+        } else if (check.status === 503 || check.status >= 500) {
+          // Keep the valid session: server outage is not an invalid password.
+          setMessage('O servidor não conseguiu confirmar o acesso. Confira os logs da Vercel e as cinco variáveis do Supabase.');
+        } else {
+          setMessage('A sessão não foi confirmada. Atualize a página e tente novamente.');
+        }
         return;
       }
       router.replace('/');
       router.refresh();
     } catch {
-      setMessage('Não foi possível conectar agora. Verifique sua internet e tente novamente.');
+      setMessage('Não foi possível conectar ao Supabase. Confira as variáveis na Vercel e sua conexão.');
     } finally { setBusy(false); }
   }
 
@@ -54,8 +66,9 @@ export default function LoginForm() {
         <form onSubmit={onSubmit}>
           <label className="login-field"><span>E-mail</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" autoCapitalize="none" autoCorrect="off" placeholder="seu@email.com" /></label>
           <label className="login-field"><span>Senha</span><span className="login-password-wrap"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" placeholder="Sua senha" /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label>
+          {missingConfig ? <p role="alert" className="login-error">Configuração do servidor incompleta. Confira NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY e OWNER_USER_ID na Vercel e faça Redeploy.</p> : null}
           {message ? <p role="alert" className="login-error">{message}</p> : null}
-          <button className="login-submit" type="submit" disabled={busy}>{busy ? 'Verificando...' : 'Entrar no meu espaço'}<ArrowRight size={19} /></button>
+          <button className="login-submit" type="submit" disabled={busy || missingConfig}>{busy ? 'Verificando...' : 'Entrar no meu espaço'}<ArrowRight size={19} /></button>
         </form>
         <p className="login-privacy"><ShieldCheck size={16} /> Conta pessoal. Seus registros permanecem privados.</p>
       </section>

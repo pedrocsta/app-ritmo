@@ -13,5 +13,5 @@ export const viewport: Viewport = {
   width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#080d13',
 };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-BR"><body>{children}</body></html>;
+  return <html lang="pt-BR"><body suppressHydrationWarning>{children}</body></html>;
 }

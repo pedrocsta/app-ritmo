@@ -230,6 +230,8 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState<Weekday>(() => weekdayOf(todayKey()));
   const [exerciseName, setExerciseName] = useState("");
   const [showAllSessions, setShowAllSessions] = useState(false);
+  const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
+  const [artOpen, setArtOpen] = useState<{ name: string; imageKey: string; instructions?: string } | null>(null);
   const [showExerciseSuggestions, setShowExerciseSuggestions] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [modal, setModal] = useState<"reset" | "import" | null>(null);
@@ -278,6 +280,7 @@ export default function Dashboard() {
   const todayLog = data.days[currentDate] ?? emptyDay();
   const todayScore = dayScore(todayLog, data.settings.studyGoal, data.habits, data.mealCatalog);
   const plan = data.plans[selectedDay];
+  const programDay = data.trainingDays?.[selectedDay];
   const planSets = plan.reduce((sum, item) => sum + item.sets, 0);
   const exerciseOptions = Object.values(data.exercises).filter((exercise) =>
     normalizeExerciseName(exercise.name).includes(normalizeExerciseName(exerciseName)) && exerciseName.trim().length > 0
@@ -449,6 +452,23 @@ export default function Dashboard() {
     setToast("Exerc\u00edcio removido deste dia.");
   }
 
+  function patchPerformedSet(itemId: string, setIndex: number, field: 'reps' | 'weight', value: number) {
+    setData((prev) => {
+      const item = prev.plans[selectedDay].find((candidate) => candidate.id === itemId);
+      if (!item) return prev;
+      const exercise = prev.exercises[item.exerciseId];
+      if (!exercise) return prev;
+      const old = prev.workoutDetails?.[selectedDate]?.[itemId] ?? [];
+      const rows = Array.from({ length: item.sets }, (_, index) => old[index] ?? { reps: item.reps, weight: exercise.weight });
+      rows[setIndex] = { ...rows[setIndex], [field]: field === 'reps'
+        ? Math.round(safeNumber(value, 0, 100, item.reps))
+        : Math.round(safeNumber(value, 0, 2000, exercise.weight) * 4) / 4 };
+      return { ...prev, workoutDetails: { ...prev.workoutDetails, [selectedDate]: {
+        ...(prev.workoutDetails[selectedDate] ?? {}), [itemId]: rows,
+      } } };
+    });
+  }
+
   function toggleSet(itemId: string, setIndex: number, numberOfSets: number) {
     setData((prev) => {
       const dayChecks = prev.workoutChecks[selectedDate] ?? {};
@@ -467,29 +487,43 @@ export default function Dashboard() {
   }
 
   function recordWorkout() {
-    if (!plan.length) { setToast("Adicione exerc\u00edcios ao treino primeiro."); return; }
-    if (!completedSets) { setToast("Marque as s\u00e9ries realizadas ou use 'Marcar todas'."); return; }
+    if (!plan.length) { setToast("Adicione exercícios ao treino primeiro."); return; }
+    if (!completedSets) { setToast("Marque as séries realizadas ou use 'Marcar todas'."); return; }
+    const isCardioDay = programDay?.kind === 'cardio' || plan.every((item) => data.exercises[item.exerciseId]?.kind === 'cardio');
     const session = {
       id: crypto.randomUUID(),
       date: selectedDate,
       planDay: selectedDay,
       createdAt: new Date().toISOString(),
-      exercises: plan.map((item) => ({
-        exerciseId: item.exerciseId,
-        name: data.exercises[item.exerciseId].name,
-        weight: data.exercises[item.exerciseId].weight,
-        plannedSets: item.sets,
-        performedSets: (data.workoutChecks[selectedDate]?.[item.id] ?? []).filter(Boolean).length,
-        reps: item.reps,
-      })).filter((item) => item.performedSets > 0),
+      exercises: plan.map((item) => {
+        const ex = data.exercises[item.exerciseId];
+        const checked = data.workoutChecks[selectedDate]?.[item.id] ?? [];
+        const details = data.workoutDetails?.[selectedDate]?.[item.id] ?? [];
+        const setsDone = checked.flatMap((done, index) => done ? [{
+          setNumber: index + 1,
+          reps: details[index]?.reps ?? item.reps,
+          weight: details[index]?.weight ?? ex.weight,
+        }] : []);
+        return {
+          exerciseId: item.exerciseId, name: ex.name,
+          weight: ex.weight, plannedSets: item.sets, performedSets: setsDone.length,
+          reps: item.reps, setsDone,
+          ...(item.durationMinutes ? { durationMinutes: item.durationMinutes } : {}),
+        };
+      }).filter((item) => item.performedSets > 0),
     };
     setData((prev) => ({
       ...prev,
-      days: { ...prev.days, [selectedDate]: { ...(prev.days[selectedDate] ?? emptyDay()), gym: true } },
+      // Run days are cardio, not automatically a gym visit.
+      days: isCardioDay ? prev.days : {
+        ...prev.days,
+        [selectedDate]: { ...(prev.days[selectedDate] ?? emptyDay()), gym: true },
+      },
       sessions: [session, ...prev.sessions],
       workoutChecks: { ...prev.workoutChecks, [selectedDate]: {} },
+      workoutDetails: { ...prev.workoutDetails, [selectedDate]: {} },
     }));
-    setToast("Treino registrado e academia marcada no dia!");
+    setToast(isCardioDay ? "Corrida registrada no histórico!" : "Treino registrado e academia marcada no dia!");
   }
 
   function exportBackup() {
@@ -629,30 +663,61 @@ export default function Dashboard() {
             <div className="page-intro"><div><span className="eyebrow"><Dumbbell size={14} /> SUA EVOLU&Ccedil;&Atilde;O EM MOVIMENTO</span><h1>Treine com inten&ccedil;&atilde;o<span className="heading-period">.</span></h1><p>Sete dias para planejar. Cada carga conta.</p></div><div className="date-switcher"><button onClick={() => goToDate(shiftDate(selectedDate, -1))} aria-label="Dia anterior"><ChevronLeft size={17} /></button><label className="date-switch-label"><CalendarDays size={16} /><span>{selectedDate === currentDate ? "Hoje" : shortDate(selectedDate)}</span><input type="date" aria-label="Data do treino" max={currentDate} value={selectedDate} onChange={(e) => goToDate(e.target.value)} /></label><button onClick={() => goToDate(shiftDate(selectedDate, 1))} disabled={selectedDate >= currentDate} aria-label="Próximo dia"><ChevronRight size={17} /></button></div></div>
             <section className="training-hero"><div className="training-hero-copy"><span className="hero-eyebrow"><span className="hero-star"><Dumbbell size={13} /></span> GERENCIADOR DE TREINOS</span><h2>Mais for&ccedil;a.<br />Mais const&acirc;ncia.</h2><p>Monte sua semana, registre o que fez e acompanhe seus pesos.</p></div><div className="training-hero-graphic" aria-hidden="true"><Dumbbell size={106} strokeWidth={1.05} /></div></section>
             <div className="workout-layout"><section className="workout-main">
-              <div className="workout-day-heading"><div><span className="eyebrow">SUA SEMANA</span><h2>Plano de treino</h2></div><span className="heading-count">{Object.values(data.plans).filter((list) => list.length > 0).length} / 7 dias planejados</span></div>
-              <div className="weekday-tabs" role="group" aria-label="Escolher dia do treino">{WEEKDAYS.map((day, index) => <button type="button" key={day.short} className={`weekday-tab ${selectedDay === index ? "selected" : ""}`} onClick={() => setSelectedDay(index as Weekday)} aria-pressed={selectedDay === index}><span>{day.short}</span><i className={data.plans[index as Weekday].length ? "has-plan" : ""} /></button>)}</div>
-              <div className="plan-title-row"><div><span className="eyebrow">{WEEKDAYS[selectedDay].label.toLocaleUpperCase("pt-BR")}</span><h3>{plan.length ? `${plan.length} ${plan.length === 1 ? "exerc\u00edcio" : "exerc\u00edcios"} no plano` : "Monte seu treino"}</h3><p>S&eacute;ries e repeti&ccedil;&otilde;es s&atilde;o individuais para cada dia.</p></div><span className="small-plan-icon"><MoreHorizontal size={19} /></span></div>
+              <div className="workout-day-heading"><div><span className="eyebrow">SUA SEMANA</span><h2>Plano de treino</h2></div><span className="heading-count">{WEEKDAYS.filter((_, day) => data.plans[day as Weekday].length > 0 || data.trainingDays?.[day as Weekday]?.kind === 'rest').length} / 7 dias planejados</span></div>
+              <div className="weekday-tabs" role="group" aria-label="Escolher dia do treino">{WEEKDAYS.map((day, index) => <button type="button" key={day.short} className={`weekday-tab ${selectedDay === index ? "selected" : ""}`} onClick={() => setSelectedDay(index as Weekday)} aria-pressed={selectedDay === index}><span>{day.short}</span><i className={data.plans[index as Weekday].length || data.trainingDays?.[index as Weekday]?.kind === 'rest' ? "has-plan" : ""} aria-hidden="true" /></button>)}</div>
+              <div className="plan-title-row"><div><span className="eyebrow">{WEEKDAYS[selectedDay].label.toLocaleUpperCase("pt-BR")}</span><h3>{programDay?.title || (plan.length ? `${plan.length} ${plan.length === 1 ? "exercício" : "exercícios"} no plano` : "Monte seu treino")}</h3><p>{programDay?.subtitle || "Séries e repetições são individuais para cada dia."}</p></div><span className="small-plan-icon"><MoreHorizontal size={19} /></span></div>
               <div className="shared-weight-note"><Link2 size={17} /><span><strong>Cargas conectadas.</strong> Se mudar o peso de um exerc&iacute;cio, ele ser&aacute; atualizado automaticamente nos outros dias.</span></div>
               <div className="exercise-list">{plan.map((item, index) => {
                 const exercise = data.exercises[item.exerciseId];
                 if (!exercise) return null;
                 const checkArray = data.workoutChecks[selectedDate]?.[item.id] ?? [];
                 const doneCount = checkArray.filter(Boolean).length;
+                const isCardio = exercise.kind === 'cardio' || Boolean(item.durationMinutes);
                 const otherDays = WEEKDAYS.filter((_, indexDay) => indexDay !== selectedDay && data.plans[indexDay as Weekday].some((p) => p.exerciseId === item.exerciseId)).map((d) => d.short);
-                return <article className="exercise-card" key={item.id}>
-                  <div className="exercise-head"><span className="exercise-index">{String(index + 1).padStart(2, "0")}</span><div className="exercise-heading"><h4>{exercise.name}</h4><span>{otherDays.length ? `Tamb\u00e9m em: ${otherDays.join(", ")}` : "Exerc\u00edcio do plano"}</span></div><button className="icon-quiet" type="button" onClick={() => removeExercise(item.id)} aria-label={`Remover ${exercise.name}`} title="Remover deste dia"><Trash2 size={17} /></button></div>
-                  <div className="exercise-fields"><label><span>S&Eacute;RIES</span><div className="number-field"><input type="number" inputMode="numeric" min="1" max="20" value={item.sets} onChange={(e) => patchPlanItem(item.id, "sets", Number(e.target.value))} aria-label={`S\u00e9ries de ${exercise.name}`} /></div></label><label><span>REPETI&Ccedil;&Otilde;ES</span><div className="number-field"><input type="number" inputMode="numeric" min="1" max="100" value={item.reps} onChange={(e) => patchPlanItem(item.id, "reps", Number(e.target.value))} aria-label={`Repeti\u00e7\u00f5es de ${exercise.name}`} /></div></label><label><span><Link2 size={11} /> CARGA</span><div className="number-field weight-field"><input type="number" inputMode="decimal" min="0" max="2000" step="0.25" value={exercise.weight} onChange={(e) => changeSharedWeight(exercise.id, Number(e.target.value))} aria-label={`Carga compartilhada de ${exercise.name}, em quilos`} /><small>kg</small></div></label></div>
-                  <div className="exercise-sets-heading"><span>S&Eacute;RIES FEITAS &bull; {shortDate(selectedDate)}</span><strong>{doneCount}/{item.sets}</strong></div><div className="exercise-sets">{Array.from({ length: item.sets }, (_, setIndex) => <button key={setIndex} type="button" onClick={() => toggleSet(item.id, setIndex, item.sets)} className={`set-chip ${checkArray[setIndex] ? "done" : ""}`} aria-pressed={Boolean(checkArray[setIndex])} aria-label={`${checkArray[setIndex] ? "Desmarcar" : "Concluir"} s\u00e9rie ${setIndex + 1} de ${exercise.name}`}>{checkArray[setIndex] ? <Check size={15} strokeWidth={3} /> : setIndex + 1}</button>)}</div>
+                const details = data.workoutDetails?.[selectedDate]?.[item.id] ?? [];
+                const showDetails = expandedExercise === item.id;
+                return <article className={`exercise-card ${isCardio ? 'cardio-card' : ''}`} key={item.id}>
+                  <div className="exercise-head">
+                    <span className="exercise-index">{String(index + 1).padStart(2, "0")}</span>
+                    <div className="exercise-heading"><h4>{exercise.name}</h4><span>{exercise.muscleGroup ? `${exercise.muscleGroup} · ` : ''}{otherDays.length ? `Também em: ${otherDays.join(", ")}` : isCardio ? 'Cardio' : 'Exercício do plano'}</span></div>
+                    <button className="icon-quiet" type="button" onClick={() => removeExercise(item.id)} aria-label={`Remover ${exercise.name}`} title="Remover deste dia"><Trash2 size={17} /></button>
+                  </div>
+                  {exercise.imageKey ? <button type="button" className="exercise-visual" onClick={() => setArtOpen({ name: exercise.name, imageKey: exercise.imageKey!, instructions: exercise.instructions })} aria-label={`Abrir imagem e execução de ${exercise.name}`}>
+                    <img src={`/exercises/${exercise.imageKey}.svg`} alt={`Ilustração esquemática de ${exercise.name}`} loading="lazy" />
+                    <span className="exercise-visual-action"><Info size={14} /> Ver movimento <ArrowUpRight size={14} /></span>
+                  </button> : null}
+                  {isCardio ? <div className="run-summary">
+                    <div className="run-total"><Clock3 size={18}/><strong>{item.durationMinutes || 40} minutos</strong><span>{item.intensity || 'Leve a moderada'}</span></div>
+                    <div className="run-steps"><span><b>{item.warmupMinutes ?? 5} min</b> aquecimento caminhando</span><span><b>{item.mainMinutes ?? 30} min</b> corrida leve</span><span><b>{item.cooldownMinutes ?? 5} min</b> desaquecimento</span></div>
+                    <button className={`run-done ${checkArray[0] ? 'active' : ''}`} onClick={() => toggleSet(item.id, 0, 1)} aria-pressed={Boolean(checkArray[0])}><Check size={17}/>{checkArray[0] ? 'Corrida concluída' : 'Marcar corrida como concluída'}</button>
+                  </div> : <>
+                    <div className="exercise-fields"><label><span>SÉRIES</span><div className="number-field"><input type="number" inputMode="numeric" min="1" max="20" value={item.sets} onChange={(e) => patchPlanItem(item.id, "sets", Number(e.target.value))} aria-label={`Séries de ${exercise.name}`} /></div></label>
+                      <label><span>REPETIÇÕES</span><div className="number-field"><input type="number" inputMode="numeric" min="1" max="100" value={item.reps} onChange={(e) => patchPlanItem(item.id, "reps", Number(e.target.value))} aria-label={`Repetições de ${exercise.name}`} /></div></label>
+                      <label><span><Link2 size={11} /> CARGA</span><div className="number-field weight-field"><input type="number" inputMode="decimal" min="0" max="2000" step="0.25" value={exercise.weight} onChange={(e) => changeSharedWeight(exercise.id, Number(e.target.value))} aria-label={`Carga compartilhada de ${exercise.name}, em quilos`} /><small>{exercise.weight === 0 ? 'PC' : 'kg'}</small></div></label>
+                    </div>
+                    <div className="exercise-prescription"><span><Clock3 size={14}/>{item.restSeconds ? `${item.restSeconds}s descanso` : 'Descanso livre'}</span>
+                      {item.repsUpper && item.repsUpper !== item.reps ? <span><Target size={14}/>{item.reps}–{item.repsUpper} reps</span> : null}
+                      {item.referenceWeight != null && item.referenceWeight !== exercise.weight ? <span className="ref-weight"><Link2 size={14}/> Referência do dia: {item.referenceWeight === 0 ? 'peso corporal' : `${weightText(item.referenceWeight)} kg`}</span> : null}
+                      {exercise.weight === 0 ? <span>Peso corporal</span> : null}
+                    </div>
+                    {item.notes ? <p className="exercise-notes">{item.notes}</p> : null}
+                    <div className="exercise-sets-heading"><span>SÉRIES FEITAS · {shortDate(selectedDate)}</span><strong>{doneCount}/{item.sets}</strong></div>
+                    <div className="exercise-sets">{Array.from({ length: item.sets }, (_, setIndex) => <button key={setIndex} type="button" onClick={() => toggleSet(item.id, setIndex, item.sets)} className={`set-chip ${checkArray[setIndex] ? "done" : ""}`} aria-pressed={Boolean(checkArray[setIndex])} aria-label={`${checkArray[setIndex] ? "Desmarcar" : "Concluir"} série ${setIndex + 1} de ${exercise.name}`}>{checkArray[setIndex] ? <Check size={15} strokeWidth={3} /> : setIndex + 1}</button>)}</div>
+                    <button type="button" className="details-toggle" onClick={() => setExpandedExercise(showDetails ? null : item.id)} aria-expanded={showDetails}><Pencil size={14}/>{showDetails ? 'Ocultar repetições e cargas realizadas' : 'Registrar repetições e cargas por série'} <ChevronRight size={15}/></button>
+                    {showDetails ? <div className="performance-list"><div className="performance-list-caption">Valores realizados • independentes da carga planejada</div>
+                      {Array.from({ length: item.sets }, (_, setIndex) => <div className="performance-row" key={setIndex}><span className="performance-number">{setIndex + 1}ª</span><label><span>Reps</span><input type="number" inputMode="numeric" min="0" max="100" value={details[setIndex]?.reps ?? item.reps} onChange={(e) => patchPerformedSet(item.id,setIndex,'reps', Number(e.target.value))} aria-label={`Repetições realizadas na série ${setIndex + 1} de ${exercise.name}`} /></label><label><span>Carga (kg)</span><input type="number" inputMode="decimal" min="0" max="2000" step="0.25" value={details[setIndex]?.weight ?? exercise.weight} onChange={(e) => patchPerformedSet(item.id,setIndex,'weight', Number(e.target.value))} aria-label={`Carga realizada na série ${setIndex + 1} de ${exercise.name}`} /></label><button type="button" onClick={() => toggleSet(item.id, setIndex, item.sets)} className={`performance-check ${checkArray[setIndex] ? 'done' : ''}`} aria-label={`Alternar série ${setIndex + 1}`}><Check size={17}/></button></div>)}
+                    </div> : null}
+                  </>}
                 </article>;
               })}</div>
-              {plan.length === 0 ? <div className="empty-workout"><span className="empty-workout-icon"><Dumbbell size={29} strokeWidth={1.5} /></span><h3>Seu treino come&ccedil;a aqui.</h3><p>Adicione o primeiro exerc&iacute;cio de {WEEKDAYS[selectedDay].label.toLowerCase()} e defina s&eacute;ries, repeti&ccedil;&otilde;es e carga.</p></div> : null}
+              {plan.length === 0 && programDay?.kind === 'rest' ? <div className="empty-workout rest-workout"><span className="empty-workout-icon"><Moon size={28}/></span><h3>Quarta de recuperação.</h3><p>O programa reserva este dia para descanso. Você pode ajustar o plano se sua rotina mudar.</p></div> : plan.length === 0 ? <div className="empty-workout"><span className="empty-workout-icon"><Dumbbell size={29} strokeWidth={1.5} /></span><h3>Seu treino come&ccedil;a aqui.</h3><p>Adicione o primeiro exerc&iacute;cio de {WEEKDAYS[selectedDay].label.toLowerCase()} e defina s&eacute;ries, repeti&ccedil;&otilde;es e carga.</p></div> : null}
               <div className="add-exercise-card"><div className="add-exercise-label"><Plus size={18} /><strong>Adicionar exerc&iacute;cio</strong></div><div className="exercise-entry"><div className="exercise-input-wrap"><input type="text" value={exerciseName} maxLength={80} placeholder="Ex.: Supino reto, agachamento..." onChange={(e) => { setExerciseName(e.target.value); setShowExerciseSuggestions(true); }} onFocus={() => setShowExerciseSuggestions(true)} onBlur={() => window.setTimeout(() => setShowExerciseSuggestions(false), 130)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExercise(exerciseName); } }} aria-label="Nome do exerc\u00edcio" autoComplete="off" />
                   {showExerciseSuggestions && exerciseOptions.length > 0 ? <div className="exercise-suggestions">{exerciseOptions.map((item) => <button key={item.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => addExercise(item.name)}><Dumbbell size={14} /><span>{item.name}</span><small>{weightText(item.weight)} kg</small></button>)}</div> : null}
                 </div><button className="btn-primary" onClick={() => addExercise(exerciseName)}><Plus size={18} /><span>Adicionar</span></button></div><p>Ao repetir um nome de exerc&iacute;cio, o app reutiliza a mesma carga.</p></div>
               {plan.length > 0 ? <div className="finish-workout"><div><strong>Registrar treino &bull; {shortDate(selectedDate)}</strong><p>{completedSets} de {planSets} s&eacute;ries marcadas</p></div><div className="finish-actions"><button type="button" className="btn-outline" onClick={markAllSets}><CheckCheck size={16} /> Marcar todas</button><button type="button" className="btn-primary" onClick={recordWorkout}><Check size={18} /> Registrar treino</button></div></div> : null}
             </section>
-            <aside className="workout-side"><div className="workout-side-card"><div className="side-card-top"><span className="side-card-icon"><Activity size={20} /></span><span>RESUMO DO PLANO</span></div><h3>{WEEKDAYS[selectedDay].label}</h3><div className="side-value"><strong>{plan.length}</strong><span>exerc&iacute;cios</span></div><div className="side-value"><strong>{planSets}</strong><span>s&eacute;ries planejadas</span></div><div className="side-card-divider" /><p>Voc&ecirc; pode definir cargas diferentes para exerc&iacute;cios diferentes. O mesmo exerc&iacute;cio mant&eacute;m uma carga &uacute;nica na semana.</p></div>
-              <div className="sessions-card"><div className="sessions-heading"><span className="eyebrow">SEU HIST&Oacute;RICO</span><h3>Treinos registrados</h3></div>{data.sessions.length === 0 ? <p className="session-placeholder">Quando registrar um treino, ele aparecer&aacute; aqui com o peso e as s&eacute;ries feitas.</p> : <div className="session-list">{data.sessions.slice(0, showAllSessions ? undefined : 5).map((session) => <div className="session-item" key={session.id}><span className="session-icon"><Check size={16} /></span><div><strong>{shortDate(session.date)} &middot; {WEEKDAYS[session.planDay].short}</strong><span>{session.exercises.length} exerc&iacute;cios &middot; {session.exercises.reduce((n, ex) => n + ex.performedSets, 0)} s&eacute;ries</span><details><summary>Ver exerc&iacute;cios</summary><ul>{session.exercises.map((ex) => <li key={ex.exerciseId}>{ex.name}: {ex.performedSets} x {ex.reps} &middot; {weightText(ex.weight)} kg</li>)}</ul></details></div></div>)}</div>}{data.sessions.length > 5 ? <button type="button" className="view-history" onClick={() => setShowAllSessions(!showAllSessions)}>{showAllSessions ? "Mostrar menos" : `Ver todos (${data.sessions.length})`} <ChevronRight size={15} /></button> : null}</div>
+            <aside className="workout-side"><div className="workout-side-card"><div className="side-card-top"><span className="side-card-icon"><Activity size={20} /></span><span>RESUMO DO PLANO</span></div><h3>{WEEKDAYS[selectedDay].label}</h3><div className="side-value"><strong>{plan.length}</strong><span>exerc&iacute;cios</span></div><div className="side-value"><strong>{programDay?.kind === 'rest' ? '—' : planSets}</strong><span>{programDay?.kind === 'cardio' ? 'sessões de corrida' : 'séries planejadas'}</span></div><div className="side-card-divider" /><p>Voc&ecirc; pode definir cargas diferentes para exerc&iacute;cios diferentes. O mesmo exerc&iacute;cio mant&eacute;m uma carga &uacute;nica na semana.</p></div>
+              <div className="sessions-card"><div className="sessions-heading"><span className="eyebrow">SEU HIST&Oacute;RICO</span><h3>Treinos registrados</h3></div>{data.sessions.length === 0 ? <p className="session-placeholder">Quando registrar um treino, ele aparecer&aacute; aqui com o peso e as s&eacute;ries feitas.</p> : <div className="session-list">{data.sessions.slice(0, showAllSessions ? undefined : 5).map((session) => <div className="session-item" key={session.id}><span className="session-icon"><Check size={16} /></span><div><strong>{shortDate(session.date)} &middot; {WEEKDAYS[session.planDay].short}</strong><span>{session.exercises.length} exerc&iacute;cios &middot; {session.exercises.reduce((n, ex) => n + ex.performedSets, 0)} s&eacute;ries</span><details><summary>Ver exerc&iacute;cios</summary><ul>{session.exercises.map((ex) => <li key={ex.exerciseId}>{ex.name}: {ex.durationMinutes ? `${ex.durationMinutes} min` : ex.setsDone?.length ? ex.setsDone.map((set) => `${set.reps} reps / ${weightText(set.weight)} kg`).join(' · ') : `${ex.performedSets} x ${ex.reps} · ${weightText(ex.weight)} kg`}</li>)}</ul></details></div></div>)}</div>}{data.sessions.length > 5 ? <button type="button" className="view-history" onClick={() => setShowAllSessions(!showAllSessions)}>{showAllSessions ? "Mostrar menos" : `Ver todos (${data.sessions.length})`} <ChevronRight size={15} /></button> : null}</div>
               {sessionsForDate.length > 0 ? <p className="logged-today"><Check size={16} /> {sessionsForDate.length} treino(s) registrado(s) em {shortDate(selectedDate)}.</p> : null}
             </aside></div>
           </>}
@@ -673,12 +738,20 @@ export default function Dashboard() {
             <div className="settings-grid"><section className="surface-card settings-card"><span className="settings-icon tone-yellow"><Clock3 size={22} /></span><h2>Meta di&aacute;ria de estudo</h2><p>O h&aacute;bito de estudar &eacute; marcado como conclu&iacute;do ao atingir a quantidade de minutos definida.</p><label className="settings-field"><span>Minutos de estudo por dia</span><div><input type="number" min="1" max="1440" inputMode="numeric" value={data.settings.studyGoal} onChange={(event) => setData((prev) => ({ ...prev, settings: { studyGoal: Math.round(safeNumber(event.target.value, 1, 1440, 60)) } }))} /><span>min</span></div></label><span className="settings-hint"><Check size={14} /> Sincroniza&ccedil;&atilde;o autom&aacute;tica com Supabase</span></section>
               <section className="surface-card settings-card"><span className="settings-icon tone-mint"><ShieldCheck size={22} /></span><h2>Seus dados na nuvem</h2><p>Com login privado, seus h&aacute;bitos, planos e treinos s&atilde;o guardados no Supabase. O navegador mant&eacute;m uma c&oacute;pia para emerg&ecirc;ncias e sincroniza automaticamente quando h&aacute; conex&atilde;o. Voc&ecirc; tamb&eacute;m pode exportar um backup.</p><div className="settings-actions"><button className="btn-primary" onClick={exportBackup}><Download size={18} /> Exportar backup</button><button className="btn-outline" onClick={() => importInputRef.current?.click()}><Upload size={18} /> Importar backup</button></div><input type="file" accept=".json,application/json" ref={importInputRef} onChange={selectImportFile} hidden /></section>
               <section className="surface-card settings-card danger-card"><span className="settings-icon tone-peach"><RotateCcw size={22} /></span><h2>Recome&ccedil;ar do zero</h2><p>Apague todos os h&aacute;bitos, planos, cargas e hist&oacute;rico, inclusive da nuvem ap&oacute;s a sincroniza&ccedil;&atilde;o.</p><button className="btn-danger" onClick={() => setModal("reset")}><Trash2 size={17} /> Apagar meus dados</button></section>
-              <section className="settings-about"><AppLogo /><p>Um lugar para acompanhar o que voc&ecirc; realmente quer construir. Sem distra&ccedil;&otilde;es e sem cobran&ccedil;a.</p><span>RYVMO &middot; v2.0 &middot; Supabase Auth</span><button type="button" className="btn-outline logout-action" onClick={() => void signOut()}><LogOut size={17}/> Sair da conta</button></section></div>
+              <section className="settings-about"><AppLogo /><p>Um lugar para acompanhar o que voc&ecirc; realmente quer construir. Sem distra&ccedil;&otilde;es e sem cobran&ccedil;a.</p><span>RYVMO &middot; v3.0 &middot; Supabase Auth</span><button type="button" className="btn-outline logout-action" onClick={() => void signOut()}><LogOut size={17}/> Sair da conta</button></section></div>
           </>}
         </main>
       </div>
 
       <nav className="mobile-nav" aria-label="Navega\u00e7\u00e3o inferior">{TABS.map((item) => <NavButton key={item.id} compact tab={item} selected={tab === item.id} onClick={() => switchTab(item.id)} />)}</nav>
+      {artOpen && <div className="modal-backdrop image-modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setArtOpen(null); }}>
+        <div className="exercise-modal" role="dialog" aria-modal="true" aria-label={`Como reconhecer ${artOpen.name}`}>
+          <div className="exercise-modal-heading"><div><span className="eyebrow">GUIA VISUAL DO EXERCÍCIO</span><h2>{artOpen.name}</h2></div><button type="button" onClick={() => setArtOpen(null)} className="icon-quiet" aria-label="Fechar imagem"><X size={19}/></button></div>
+          <img src={`/exercises/${artOpen.imageKey}.svg`} alt={`Ilustração do exercício ${artOpen.name}`} />
+          {artOpen.instructions ? <p>{artOpen.instructions}</p> : null}
+          <small>Ilustração esquemática para reconhecer o movimento. Não substitui a demonstração de um profissional.</small>
+        </div>
+      </div>}
       {toast && <div className="toast" role="status"><span className="toast-check"><Check size={16} /></span>{toast}<button onClick={() => setToast(null)} aria-label="Fechar aviso"><X size={15} /></button></div>}
       {deletion && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeletion(null); }}><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-item-title"><span className="modal-icon"><Trash2 size={25}/></span><h2 id="delete-item-title">Excluir {deletion.title}?</h2><p>O item não aparecerá mais na lista, e a pontuação diária será recalculada. Os registros brutos antigos continuarão preservados no backup.</p><div className="modal-actions"><button className="btn-outline" onClick={() => setDeletion(null)}>Cancelar</button><button className="btn-danger" onClick={confirmDelete}><Trash2 size={16}/> Excluir</button></div></div></div>}
       {modal && <div className="modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setModal(null); }}><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><span className="modal-icon">{modal === "reset" ? <Trash2 size={25} /> : <ArrowDownToLine size={25} />}</span><h2 id="confirm-title">{modal === "reset" ? "Apagar todos os registros?" : "Restaurar este backup?"}</h2><p>{modal === "reset" ? "Esta ação apaga os dados do Supabase e deste navegador após sincronizar. Recomendamos exportar um backup primeiro." : "Os registros atuais ser\u00e3o substitu\u00eddos pelos dados do arquivo escolhido."}</p><div className="modal-actions"><button className="btn-outline" onClick={() => { setModal(null); setPendingImport(null); }}>Cancelar</button><button className={modal === "reset" ? "btn-danger" : "btn-primary"} onClick={confirmModal}>{modal === "reset" ? "Sim, apagar tudo" : "Restaurar dados"}</button></div></div></div>}

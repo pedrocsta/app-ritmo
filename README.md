@@ -1,46 +1,95 @@
-# RYVMO - Seu progresso, todos os dias
+# RYVMO 3.0 — hábitos, dieta e Hipertrofia Estética
 
-App pessoal de habitos, dieta e treinos. **Next.js 16 + TypeScript + Supabase**. Design dark mobile-first, PWA para instalar no iPhone, e **login exclusivo para uma conta**. O codigo preserva os seus dados ja existentes da versao RITMO: a tabela `public.ritmo_state` e o formato `version: 1` continuam iguais.
+Aplicativo **Next.js 16 + React 19 + Supabase Auth** com tema escuro, versão mobile-first e suporte a iPhone e desktop. Projeto de usuário único, login por e-mail e senha e sincronização protegida. O programa de treino está incluído em um **script SQL separado**, para adicionar os planos à conta indicada sem apagar dados existentes.
 
-## O que ha nesta versao
+## Arquivos essenciais
 
-- Identidade visual RYVMO, modo escuro, experiencia responsiva para iPhone 16 Pro Max e desktop.
-- Login com e-mail e senha via **Supabase Auth**. Nao ha tela de cadastro. Somente `OWNER_USER_ID` pode acessar o painel ou a API, mesmo se outras contas existirem no projeto.
-- Habitos editaveis: criar, renomear, alterar descricao, icone e cor; excluir os existentes. Os cinco iniciais continuam disponiveis (Duolingo, creatina, academia, estudo e nao beber).
-- Seis etapas iniciais da dieta tambem podem ser renomeadas, removidas ou ampliadas.
-- Heatmap dinamico (53 semanas), estatisticas e pontuacoes recalculadas conforme os habitos e refeicoes ativos.
-- Treinos de segunda a domingo; cargas compartilhadas para o mesmo exercicio entre dias, series e repeticoes independentes, historico de sessoes preservado.
-- Salvamento na nuvem com revisao concorrente, cache temporario offline, exportar/importar backup.
-- Service worker guarda apenas arquivos estaticos; nunca faz cache de HTML ou dados privados.
+| Arquivo | Finalidade |
+| --- | --- |
+| `supabase/importar-treino-pedro.sql` | **Execute no Supabase SQL Editor** para importar a semana inteira para `pedrohdcosta@outlook.com` |
+| `supabase/hipertrofia-estetica.catalog.json` | Fonte estruturada e legível dos 28 movimentos e 34 itens de plano |
+| `public/exercises/*.svg` | **28 ilustrações originais esquemáticas** embutidas no projeto, sem links externos nem imagens de alongamento |
+| `app/dashboard.tsx` | Treinos, imagens ampliáveis, prescrições, séries realizadas e registros |
+| `app/globals.css` | Tema escuro, hovers e abas da semana alinhadas verticalmente |
+| `lib/model.ts` | Compatibilidade com os registros anteriores e novos detalhes de treino |
 
-## 1. Supabase - reaproveite seu banco atual
+## O que entra na semana
 
-**Nao apague a tabela nem execute um DROP TABLE.** O seu `supabase/schema.sql` antigo ja criou `public.ritmo_state`, e a nova versao e compativel com ela. Se voce nao tinha aplicado o SQL, execute `supabase/schema.sql` uma vez no SQL Editor.
+| Dia | Tipo | Conteúdo |
+| --- | --- | --- |
+| Segunda | Corrida | 40 min: 5 caminhando + 30 correndo + 5 caminhando |
+| Terça | Lower A + Abdômen | 7 exercícios, foco em quadríceps |
+| Quarta | Descanso | Dia de recuperação, sem exercícios adicionados |
+| Quinta | Corrida | 40 min: 5 caminhando + 30 correndo + 5 caminhando |
+| Sexta | Upper A | 9 exercícios de peito, costas, ombros e braços |
+| Sábado | Lower B + Abdômen | 8 exercícios, foco em posteriores, glúteos e quadríceps |
+| Domingo | Upper B | 8 exercícios, ênfase estética |
 
-1. Abra **Supabase > Authentication > Users**.
-2. Clique em **Add user > Create new user**, informe seu e-mail e uma senha forte e marque a confirmacao de e-mail se a interface oferecer essa opcao. Se o fluxo de criacao mudar, use **Invite user** e conclua a senha pelo e-mail.
-3. Copie o **User UID** (UUID) desse usuario, nao o e-mail. Voce usara como `OWNER_USER_ID`.
-4. Em **Authentication > Providers > Email / Settings**, desative **Allow new users to sign up**. Mantenha o login por e-mail/senha ativo. Isso impede cadastros publicos.
-5. Em **Project Settings > API Keys**, copie a chave **publishable** (`sb_publishable_...`); a chave **Secret** (`sb_secret_...`) continua sendo usada so no servidor.
-6. Copie a Project URL do projeto em **Connect** ou em Project Settings.
+**Alongamento e mobilidade não foram incluídos**, conforme solicitado. Os 34 itens usam 28 movimentos/imagens porque há exercícios repetidos em mais de um dia.
 
-## 2. Variaveis de ambiente
+## 1) Antes de importar — verificação da conta
 
-Crie `.env.local` no seu PC; **nao coloque este arquivo no GitHub**. Preencha a partir de `.env.example`:
+1. No Supabase, abra **Authentication → Users** e confirme que existe **`pedrohdcosta@outlook.com`**.
+2. Copie o **UID** dessa conta (UUID). Na Vercel, `OWNER_USER_ID` **deve corresponder exatamente a esse UID**. O e-mail não substitui o UID.
+3. No RYVMO atual, se houver dados pendentes, aguarde aparecer **Sincronizado**. Se possível, exporte um backup em **Ajustes → Exportar backup**. Feche as abas do RYVMO antes de rodar SQL para evitar conflitos de revisão.
+4. **Não execute o schema inicial novamente** se a tabela `public.ritmo_state` já existe. Este projeto traz uma migração de treino própria e não precisa de `DROP TABLE`.
+
+## 2) Executar o SQL de importação
+
+No painel do **mesmo projeto Supabase** conectado à Vercel, abra **SQL Editor → New query**, copie o conteúdo completo de `supabase/importar-treino-pedro.sql` e execute.
+
+O script, numa transação:
+
+- Confirma que `pedrohdcosta@outlook.com` existe em `auth.users`.
+- Impede o vínculo se a linha `personal` já pertence a **outro UID**.
+- Acrescenta a coluna `owner_user_id` ao registro atual.
+- Cria a tabela privada `ryvmo_import_backups` e salva uma cópia de `data` e `revision` **antes de modificar**.
+- Acrescenta o plano completo, sem apagar hábitos, refeições, dias marcados, sessões ou exercícios anteriores.
+- Evita duplicações do mesmo identificador se você rodar o SQL duas vezes.
+- Mantém o **peso atual** de exercícios já importados em vez de redefini-lo.
+- Incrementa `revision`, permitindo que o app perceba a alteração externa.
+
+A consulta de verificação ao fim deve mostrar `owner_email = pedrohdcosta@outlook.com` e **pelo menos** `segunda=1, terca=7, quarta=0, quinta=1, sexta=9, sabado=8, domingo=8`. Se existiam exercícios manuais nesses dias, os totais podem ser maiores, porque a importação **não os apaga**.
+
+**Importante sobre cargas compartilhadas:** a aplicação mantém um único valor **atual** por movimento. Por isso, referências distintas do seu plano são preservadas e exibidas em cada dia: cadeira flexora (60 kg terça / 55 kg sábado), abdominal na polia (50 kg terça / 45 kg sábado), puxada alta neutra (60 kg sexta / 65 kg domingo). Ao modificar a **carga atual compartilhada**, ela muda em todas as aparições; as **referências originais** e os snapshots de treinos concluídos permanecem intactos. As cargas de referência são sugestões do plano, não metas obrigatórias.
+
+## 3) Atualizar o GitHub / Vercel
+
+Copie **todos os arquivos e pastas** de `ryvmo-next/` para a raiz do repositório atual que contém `package.json` (ou configure Root Directory na Vercel). Mantenha o diretório `.git` e **não envie** `.env.local` nem chaves secretas. Faça commit e push. A Vercel fará um novo deployment da branch configurada.
+
+As **cinco variáveis de ambiente** continuam com estes nomes na Vercel → **Project Settings → Environment Variables → Production**:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://SEU-PROJETO.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_SUA_CHAVE_PUBLICA
-SUPABASE_URL=https://SEU-PROJETO.supabase.co
+SUPABASE_URL=https://seu-projeto.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_SUA_CHAVE_SECRETA
-OWNER_USER_ID=UUID_DO_USUARIO_CRIADO_NO_SUPABASE
+OWNER_USER_ID=UUID_DA_CONTA_PEDRO
 ```
 
-A URL se repete porque o app usa Supabase Auth no browser e a API de dados em uma rota segura no servidor. **So a publishable key e publica**. Nunca envie ou exponha `SUPABASE_SECRET_KEY`.
+As variáveis `NEXT_PUBLIC_` são usadas pelo login; a chave `sb_secret_` **jamais** deve aparecer em código cliente ou repositório. **Redeploy** após alterar variáveis.
 
-## 3. Instalar e executar
+Teste a URL de produção `/login`, faça login e abra **Treinos**. Em caso de erro 500, confira **Vercel → Logs**: esse erro não pode ser diagnosticado pelo texto genérico do navegador. A versão mantém o tratamento resiliente do proxy e das rotas autenticadas para evitar 500 não tratados por falha temporária no Auth; isso não dispensa validar as configurações e os logs reais.
 
-Node.js **20.9+**:
+## 4) Usar no celular e no PC
+
+No PC: abra a URL HTTPS da Vercel no navegador e faça login. No iPhone: abra a mesma URL no Safari, faça login, toque em **Compartilhar → Adicionar à Tela de Início**. No Safari, selecione **Abrir como App** quando a opção estiver disponível. Os dados são compartilhados pelo Supabase.
+
+As imagens podem ser tocadas para ampliar; há uma dica textual para reconhecer cada movimento. **São ilustrações esquemáticas, não fotografias ou avaliação técnica de postura**. Para um movimento desconhecido, peça demonstração a um profissional.
+
+No treino de força é possível:
+
+- editar séries e repetições planejadas para cada dia;
+- editar a carga atual (compartilhada automaticamente com aparições do mesmo exercício);
+- conferir descanso, faixa de repetições e carga original de referência;
+- marcar as séries realizadas e expandir **Registrar repetições e cargas por série**;
+- concluir o treino: os valores efetivamente registrados ficam no histórico como snapshot, sem serem alterados por futuras progressões de carga.
+
+Corridas de segunda e quinta têm um botão próprio de conclusão e **não marcam automaticamente o hábito de academia**. Quarta aparece como descanso. Todos os hábitos e refeições preexistentes permanecem administráveis em Ajustes.
+
+## 5) Desenvolvimento local
+
+Requer Node.js **20.9+**:
 
 ```bash
 npm install
@@ -50,48 +99,15 @@ npm run build
 npm run dev
 ```
 
-Abra http://localhost:3000. Deve redirecionar para `/login`. Entre com a sua conta unica. Se `OWNER_USER_ID` estiver incorreto ou ausente, nenhum usuario recebe acesso.
+Abra http://localhost:3000. O arquivo `.env.example` contém os nomes das variáveis. Copie para `.env.local` e preencha localmente, **sem commitar**.
 
-## 4. Atualizar GitHub e Vercel
+## 6) Segurança e limites
 
-Copie os arquivos deste projeto para o repositorio existente, **mantendo o historico .git e evitando substituir suas credenciais**. Faca commit e push. No painel **Vercel > Project > Settings > Environment Variables**, configure as **cinco** variaveis acima em `Production`. Certifique-se de que a Root Directory aponta para a pasta que contem `package.json`. Faca **Redeploy** depois de atualizar as variaveis.
+- O servidor verifica a sessão Supabase Auth e compara o UID com `OWNER_USER_ID`; sem isso, retorna 401/403/503 em vez de liberar dados.
+- A linha `public.ritmo_state` usa a API do Supabase apenas via Next.js com chave secreta server-side. O RLS continua ativado, sem policies para `anon` e `authenticated` acessarem o JSON diretamente.
+- A estrutura `version: 1` e os nomes da tabela antiga continuam compatíveis. A migração mantém o cache/conflitos de revisão existentes.
+- O PWA só armazena arquivos públicos e assets estáticos em cache; não armazena HTML privado nem respostas da API.
+- O limite de tamanho de salvamento ainda é 3,5 MB; em caso de conflito com outro dispositivo, escolha explicitamente uma versão depois de fazer backup.
+- Para atualizar o peso, altere a carga compartilhada no exercício; para registrar o peso efetivamente usado numa série passada, use o formulário detalhado.
 
-No iPhone: acesse sua URL HTTPS da Vercel pelo Safari, entre com a senha, toque em **Compartilhar > Adicionar a Tela de Inicio**. No PC, use a mesma URL. Tudo sincroniza no mesmo registro Supabase. Se Vercel Authentication estiver ativada, havera uma autenticacao *adicional* da Vercel; ela nao e necessaria quando este login unico estiver corretamente configurado.
-
-## 5. Privacidade, migracao e limites
-
-- A URL `/api/state` exige uma sessao valida do Supabase **e** UID igual a `OWNER_USER_ID`. A service-role/secret key so existe no backend. `public.ritmo_state` mantem RLS e nega acesso direto a `anon` e `authenticated`. Nao adicione policies que exponham essa tabela ao browser.
-- A pagina `/` verifica a sessao no servidor e encaminha visitantes para `/login`.
-- Nao ha cadastro no app. Desative os signups no Supabase para manter uma unica conta.
-- **Seus dados existentes continuam na linha `id = 'personal'`.** Ao abrir, dados antigos sao migrados automaticamente em memoria. A primeira alteracao salva os novos campos opcionais de habit management, sem apagar treinos antigos.
-- Excluir um habito ou uma refeicao remove o item do painel e da pontuacao, mas **preserva seus checks antigos no JSON**. Para restaurar, use um backup (recomendado antes de exclusoes).
-- Quando a lista muda, o heatmap e os percentuais historicos sao recalculados segundo as metas *atualmente ativas*.
-- Se excluir o habito de academia, o **gerenciador de treinos permanece disponivel** pela aba Treinos. Se excluir o de estudo, os minutos passados tambem ficam preservados.
-- O cache local e apagado ao sair. Por motivos de seguranca, **HTML privado nao e armazenado para abrir offline apos encerrar a sessao**. Uma aba ja aberta pode manter anotacoes pendentes de sincronizacao, mas nao limpe os dados antes de aparecer "Sincronizado".
-- Limites: 80 habitos, 30 etapas da dieta, 3.5MB por salvamento, backups ate 3MB; a API mantem controle de revisao e alerta em conflito de edicao.
-- A seguranca depende de uma senha forte, das credenciais secretas mantidas fora do GitHub, da configuracao de Auth e do UID correto. Ative MFA no Supabase se achar necessario para a conta pessoal.
-
-## Como esta organizado
-
-```
-app/
-  page.tsx                  # Protecao server-side da home
-  dashboard.tsx             # Dashboard e editores, client-side
-  login/page.tsx            # Protecao da pagina de login
-  login/login-form.tsx      # UI de login
-  api/auth/me/route.ts      # Confirma o UID autorizado apos entrar
-  api/state/route.ts        # GET/PUT protegidos -> registro no Supabase
-  globals.css              # Design system dark
-lib/
-  auth.ts                   # Verifica Supabase Auth + OWNER_USER_ID
-  model.ts                  # Modelo, compatibilidade, score dinamico
-  use-cloud-store.ts       # Cache temporario, sync e conflitos
-  supabase/client.ts       # Cliente publico de login
-  supabase/server.ts       # Cliente SSR com cookies
-  supabase-server.ts        # Acesso secreto REST somente server
-proxy.ts                    # Refresh de cookies SSR no Next 16
-supabase/schema.sql         # SQL existente; nao requer migracao
-public/sw.js                # Apenas cache de assets publicos
-```
-
-**Nota de verificacao:** testes unitarios e de rota usam mocks e nao conectam a um banco real. Antes de depender do app diariamente, confira login, salvar, logout, acesso negado a `/api/state` sem login e sincronizacao PC/iPhone na sua publicacao real. Este codigo nao foi enviado automaticamente para seu repositorio GitHub.
+**Verificacao realizada aqui:** testes de modelo, autenticacao com mocks, recuperacao de falhas, UI dark, integridade das 28 ilustracoes, 34 itens de plano e round-trip dos dados passaram. A checagem de TypeScript e o build de producao do Next.js tambem passaram. A integracao autenticada com um Supabase real nao foi validada. O script SQL foi preparado e validado estruturalmente; sua execucao no projeto Supabase e uma etapa separada da publicacao do codigo.

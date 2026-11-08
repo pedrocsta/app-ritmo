@@ -1,7 +1,9 @@
 import 'server-only';
 import { createServerClient, type SetAllCookies } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { isPublicSupabaseConfigured } from '@/lib/supabase/config';
 export async function createClient() {
+  if (!isPublicSupabaseConfigured()) throw new Error('Supabase Auth nao configurado no servidor.');
   const cookieStore = await cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
